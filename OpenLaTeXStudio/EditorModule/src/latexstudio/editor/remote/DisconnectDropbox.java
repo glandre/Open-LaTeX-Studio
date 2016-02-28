@@ -15,10 +15,13 @@ import latexstudio.editor.DropboxRevisionsTopComponent;
 import latexstudio.editor.TopComponentFactory;
 import latexstudio.editor.settings.ApplicationSettings;
 import latexstudio.editor.settings.SettingsService;
+import org.netbeans.api.progress.ProgressHandle;
+import org.netbeans.api.progress.ProgressHandleFactory;
 import org.openide.awt.ActionID;
 import org.openide.awt.ActionReference;
 import org.openide.awt.ActionRegistration;
 import org.openide.util.NbBundle.Messages;
+import org.openide.util.RequestProcessor;
 
 @ActionID(
         category = "Remote",
@@ -38,36 +41,50 @@ public final class DisconnectDropbox implements ActionListener {
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        DbxClient client = DbxUtil.getDbxClient();
+        Runnable task;
+        task = new Runnable() {
+            @Override
+            public void run() {
+                final ProgressHandle progressBar = ProgressHandleFactory.createHandle("Disconnecting from Dropbox");
+                progressBar.start();
 
-        if (client == null) {
-            LOGGER.log("Dropbox account already disconnected.");
-            return;
-        }
+                DbxClient client = DbxUtil.getDbxClient();
+                progressBar.progress("Token disabled");
+                if (client == null) {
+                    LOGGER.log("Dropbox account already disconnected.");
+                    progressBar.finish();
+                    return;
+                }
 
-        String userToken = client.getAccessToken();
+                String userToken = client.getAccessToken();
 
-        if (userToken != null && !userToken.isEmpty()) {
-            try {
+                if (userToken != null && !userToken.isEmpty()) {
+                    try {
 
-                client.disableAccessToken();
+                        client.disableAccessToken();
 
-                drtc.updateRevisionsList(null);
-                drtc.close();
+                        ApplicationSettings appSettings = SettingsService.loadApplicationSettings();
+                        appSettings.setDropboxToken("");
+                        SettingsService.saveApplicationSettings(appSettings);
 
-                ApplicationSettings appSettings = SettingsService.loadApplicationSettings();
-                appSettings.setDropboxToken("");
-                SettingsService.saveApplicationSettings(appSettings);
-                LOGGER.log("Successfully disconnected from Dropbox account.");
+                        LOGGER.log("Successfully disconnected from Dropbox account.");
 
-            } catch (DbxException ex) {
-                JOptionPane.showMessageDialog(null,
-                        "Invalid access token! Open LaTeX Studio has NOT been connected with Dropbox.\n Please try again and provide correct access token.",
-                        "Invalid token",
-                        JOptionPane.ERROR_MESSAGE);
+                    } catch (DbxException ex) {
+                        JOptionPane.showMessageDialog(null,
+                                "Invalid access token! Open LaTeX Studio has NOT been connected with Dropbox.\n Please try again and provide correct access token.",
+                                "Invalid token",
+                                JOptionPane.ERROR_MESSAGE);
+                    }
+                } else {
+                    LOGGER.log("Dropbox account already disconnected.");
+                }
+
+                progressBar.finish();
             }
-        } else {
-            LOGGER.log("Dropbox account already disconnected.");
-        }
+        };
+        RequestProcessor.getDefault().post(task);
+
+        drtc.updateRevisionsList(null);
+        drtc.close();
     }
 }
